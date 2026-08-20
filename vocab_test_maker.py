@@ -26,7 +26,6 @@ import io
 import os
 import random
 import re
-import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -41,7 +40,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
 
 APP_NAME = "英検2級 単語テストメーカー"
-CSV_FILENAME = "eiken2_pass_tan_1700.csv"
+DEFAULT_CSV_URL = "https://raw.githubusercontent.com/ddd3h/eiken-vocab-test-maker/main/data/eiken2_pass_tan_1700.csv"
 QUESTIONS_PER_TEST = 10
 HTTP_TIMEOUT = 15  # 秒
 MAX_CSV_BYTES = 20 * 1024 * 1024
@@ -64,15 +63,6 @@ class VocabItem:
     no: int
     word: str
     meaning: str
-
-
-def resource_path(filename: str) -> Path:
-    """Get path both in normal Python and PyInstaller frozen app."""
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-    for candidate in (base / "data" / filename, base / filename):
-        if candidate.exists():
-            return candidate
-    return base / "data" / filename
 
 
 def is_url(source: str) -> bool:
@@ -439,7 +429,7 @@ def launch_gui() -> None:
 
     ttk.Label(main, text=APP_NAME, font=("Helvetica", 17, "bold")).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 14))
 
-    csv_var = tk.StringVar(value=str(resource_path(CSV_FILENAME)))
+    csv_var = tk.StringVar(value=DEFAULT_CSV_URL)
     range_var = tk.StringVar(value="1-100")
     direction_var = tk.StringVar(value="meaning-to-word")
     two_sets_var = tk.StringVar(value="same")
@@ -538,7 +528,7 @@ def launch_gui() -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=APP_NAME)
-    p.add_argument("--csv", default=str(resource_path(CSV_FILENAME)), help="CSVファイルのパス、またはURL")
+    p.add_argument("--csv", default=DEFAULT_CSV_URL, help="CSVファイルのパス、またはURL（既定値はGitHubのRaw URL）")
     p.add_argument("--range", dest="range_text", help="例: 1-100, 101-200")
     p.add_argument(
         "--direction",
