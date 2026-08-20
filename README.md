@@ -3,7 +3,13 @@
 CSV（`No,単語,意味`）から出題範囲を指定し、A4横1枚にA5縦の単語テストを2枚面付けして
 PDFで書き出すツールです（GUI / CLI）。同一問題2枚 or 左右で別問題、解答PDFも作れます。
 
-サンプル: [`samples/sample_test_1-100.pdf`](samples/sample_test_1-100.pdf) /
+出力イメージ（A4横1枚に、A5縦のテストが左右2枚。中央の点線で切り取り）:
+
+| テスト（配布用） | 解答 |
+|---|---|
+| ![テストPDFのサンプル](docs/images/screenshot_test.png) | ![解答PDFのサンプル](docs/images/screenshot_answers.png) |
+
+サンプルPDFそのもの: [`samples/sample_test_1-100.pdf`](samples/sample_test_1-100.pdf) /
 [`samples/sample_test_1-100_answers.pdf`](samples/sample_test_1-100_answers.pdf)
 
 ## ダウンロード（ビルド済みアプリ）
