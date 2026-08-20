@@ -6,7 +6,21 @@ PDFで書き出すツールです（GUI / CLI）。同一問題2枚 or 左右で
 サンプル: [`samples/sample_test_1-100.pdf`](samples/sample_test_1-100.pdf) /
 [`samples/sample_test_1-100_answers.pdf`](samples/sample_test_1-100_answers.pdf)
 
-## いちばん簡単な使い方（Mac）
+## ダウンロード（ビルド済みアプリ）
+
+[Releases](../../releases/latest) から、Windows / macOS / Linux 用のビルド済みアプリを
+ダウンロードできます。Pythonのインストールは不要です。
+
+| OS | ファイル |
+|---|---|
+| Windows | `EikenVocabTestMaker-Windows.zip` を解凍し `EikenVocabTestMaker.exe` を実行 |
+| macOS | `EikenVocabTestMaker-macOS.zip` を解凍し `EikenVocabTestMaker.app` を実行 |
+| Linux | `EikenVocabTestMaker-Linux.tar.gz` を展開し `EikenVocabTestMaker` を実行 |
+
+※ 署名なしビルドのため、初回起動時にOSの警告が出ることがあります
+（macOS: control + クリック →「開く」/ Windows: 「詳細情報」→「実行」）。
+
+## いちばん簡単な使い方（ソースから・Mac）
 
 1. このリポジトリをダウンロード（Code → Download ZIP）して展開します。
 2. `run_mac.command` をダブルクリックします。
