@@ -78,6 +78,8 @@ python3 vocab_test_maker.py --range 1-100 --seed 12345 --output test.pdf
 
 ## GUIの機能
 
+![GUIのスクリーンショット](docs/images/screenshot_gui.png)
+
 - 出題範囲: 1-100, 101-200, ... 1601-1700（自由入力も可）
 - 100語の範囲からランダムに10問
 - 日本語 → 英単語 / 英単語 → 日本語
