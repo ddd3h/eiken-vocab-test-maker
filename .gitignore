@@ -6,3 +6,4 @@ dist/
 __pycache__/
 *.pyc
 vocab_test_*.pdf
+.serena/
