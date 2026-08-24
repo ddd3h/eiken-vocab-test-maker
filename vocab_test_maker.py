@@ -53,7 +53,7 @@ import self_update
 from self_update import Asset
 
 APP_NAME = "英検2級 単語テストメーカー"
-APP_VERSION = "1.2.1"  # リリース時は git タグ vX.Y.Z と揃える
+APP_VERSION = "1.2.2"  # リリース時は git タグ vX.Y.Z と揃える
 GITHUB_REPO = "ddd3h/eiken-vocab-test-maker"
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/data/"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -592,8 +592,8 @@ def make_test(
     csv_source: str | Path,
     range_text: str,
     output_path: Path,
-    direction: str = "meaning-to-word",
-    two_sets: str = "same",
+    direction: str = "word-to-meaning",
+    two_sets: str = "different",
     make_answers: bool = True,
     seed: int | None = None,
     source_name: str | None = None,
@@ -645,8 +645,8 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
     dataset_var = tk.StringVar(value=DEFAULT_DATASET.label)
     csv_var = tk.StringVar(value=initial_csv or DEFAULT_CSV_URL)
     range_var = tk.StringVar(value="1-100")
-    direction_var = tk.StringVar(value="meaning-to-word")
-    two_sets_var = tk.StringVar(value="same")
+    direction_var = tk.StringVar(value="word-to-meaning")
+    two_sets_var = tk.StringVar(value="different")
     answers_var = tk.BooleanVar(value=True)
 
     ttk.Label(main, text="単語帳").grid(row=1, column=0, sticky="w", pady=6)
@@ -917,14 +917,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--direction",
         choices=["meaning-to-word", "word-to-meaning"],
-        default="meaning-to-word",
-        help="meaning-to-word=日本語→英単語, word-to-meaning=英単語→日本語",
+        default="word-to-meaning",
+        help="meaning-to-word=日本語→英単語, word-to-meaning=英単語→日本語（既定）",
     )
     p.add_argument(
         "--two-sets",
         choices=["same", "different"],
-        default="same",
-        help="same=同じ問題を左右2枚, different=左右で別問題",
+        default="different",
+        help="same=同じ問題を左右2枚, different=左右で別問題（既定）",
     )
     p.add_argument("--answers", action="store_true", help="解答PDFも作る")
     p.add_argument("--no-answers", action="store_true", help="解答PDFを作らない")

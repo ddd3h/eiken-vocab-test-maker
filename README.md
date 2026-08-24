@@ -113,8 +113,8 @@ python3 vocab_test_maker.py --range 1-100 --seed 12345 --output test.pdf
 | `--dataset` | 同梱の単語帳: `eiken2`（英検2級 パス単, 既定）/ `target1900`（ターゲット1900） |
 | `--csv` | 自前のCSVファイルのパス、またはURL（`--dataset` の代わりに使う） |
 | `--range` | 出題範囲。例: `1-100` |
-| `--direction` | `meaning-to-word`（日本語→英単語）/ `word-to-meaning`（英単語→日本語） |
-| `--two-sets` | `same`（左右とも同じ10問）/ `different`（左右で別の10問） |
+| `--direction` | `meaning-to-word`（日本語→英単語）/ `word-to-meaning`（英単語→日本語, 既定） |
+| `--two-sets` | `same`（左右とも同じ10問）/ `different`（左右で別の10問, 既定） |
 | `--answers` / `--no-answers` | 解答PDFを作る / 作らない |
 | `--seed` | 乱数seed（同じ問題を再現したい場合） |
 | `--output` | 出力PDFのパス |
