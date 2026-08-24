@@ -30,6 +30,7 @@ import json
 import os
 import random
 import re
+import ssl
 import sys
 import threading
 import urllib.error
@@ -47,7 +48,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
 
 APP_NAME = "英検2級 単語テストメーカー"
-APP_VERSION = "1.1.0"  # リリース時は git タグ vX.Y.Z と揃える
+APP_VERSION = "1.1.1"  # リリース時は git タグ vX.Y.Z と揃える
 GITHUB_REPO = "ddd3h/eiken-vocab-test-maker"
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/data/"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -141,6 +142,26 @@ def normalize_csv_url(url: str) -> str:
     return url.strip()
 
 
+def ssl_context() -> ssl.SSLContext:
+    """HTTPS用のSSLコンテキスト。
+
+    PyInstallerで固めたアプリ（特にmacOS）はOSの証明書ストアを参照できず、
+    urlopen が CERTIFICATE_VERIFY_FAILED になる。certifi のCAバンドルを同梱して
+    それを明示的に使う。certifi が無い環境では Python 既定に任せる。
+    """
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def _describe_network_error(e: BaseException) -> str:
+    """URLError などから、ユーザー向けメッセージに添える短い原因説明を作る。"""
+    reason = getattr(e, "reason", e)
+    return str(reason) or e.__class__.__name__
+
+
 def fetch_csv_text(url: str) -> str:
     url = normalize_csv_url(url)
     if not is_url(url):
@@ -148,13 +169,14 @@ def fetch_csv_text(url: str) -> str:
 
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=ssl_context()) as resp:
             raw = resp.read(MAX_CSV_BYTES + 1)
     except urllib.error.HTTPError as e:
         raise ValueError(f"CSVの取得に失敗しました（HTTP {e.code}）: {url}") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise ValueError(
-            f"CSVをダウンロードできませんでした（ネットワーク接続を確認してください）: {url}"
+            "CSVをダウンロードできませんでした（ネットワーク接続を確認してください）\n"
+            f"原因: {_describe_network_error(e)}\nURL: {url}"
         ) from e
 
     if len(raw) > MAX_CSV_BYTES:
@@ -246,7 +268,7 @@ def fetch_latest_release(timeout: float = UPDATE_CHECK_TIMEOUT) -> ReleaseInfo |
         headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as resp:
             data = json.loads(resp.read(1024 * 1024).decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
         return None
