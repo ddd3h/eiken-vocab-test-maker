@@ -9,7 +9,8 @@
 - 日本語→英単語 / 英単語→日本語
 - 同一問題2枚 / 左右で別問題
 - 任意で解答PDFも生成
-- 起動時にGitHub Releasesを見て、新しいバージョンがあればGUIに知らせる（自動置換はしない）
+- 起動時にGitHub Releasesを見て、新しいバージョンがあればGUIに知らせる
+- 配布ビルドなら「今すぐ更新」でダウンロード → 検証 → 入れ替え → 再起動まで行う（self_update.py）
 
 GUI:
     python3 vocab_test_maker.py
@@ -36,10 +37,10 @@ import threading
 import urllib.error
 import urllib.request
 import webbrowser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
@@ -47,8 +48,11 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
 
+import self_update
+from self_update import Asset
+
 APP_NAME = "英検2級 単語テストメーカー"
-APP_VERSION = "1.1.1"  # リリース時は git タグ vX.Y.Z と揃える
+APP_VERSION = "1.2.0"  # リリース時は git タグ vX.Y.Z と揃える
 GITHUB_REPO = "ddd3h/eiken-vocab-test-maker"
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/data/"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -248,6 +252,7 @@ def load_vocab(source: str | Path) -> List[VocabItem]:
 class ReleaseInfo:
     version: str  # 例: "1.2.0"（先頭の v は除く）
     url: str  # そのリリースのページ
+    assets: Dict[str, Asset] = field(default_factory=dict)  # 配布ファイル名 → Asset
 
 
 def parse_version(text: str) -> Tuple[int, ...]:
@@ -277,7 +282,15 @@ def fetch_latest_release(timeout: float = UPDATE_CHECK_TIMEOUT) -> ReleaseInfo |
     tag = str(data.get("tag_name") or "").strip()
     if not parse_version(tag):
         return None
-    return ReleaseInfo(version=tag.lstrip("vV"), url=str(data.get("html_url") or RELEASES_PAGE_URL))
+    assets: Dict[str, Asset] = {}
+    for a in data.get("assets") or []:
+        if not isinstance(a, dict):
+            continue
+        name = str(a.get("name") or "")
+        url = str(a.get("browser_download_url") or "")
+        if name and url:
+            assets[name] = Asset(name=name, url=url, size=int(a.get("size") or 0))
+    return ReleaseInfo(version=tag.lstrip("vV"), url=str(data.get("html_url") or RELEASES_PAGE_URL), assets=assets)
 
 
 def check_for_update(current: str = APP_VERSION) -> ReleaseInfo | None:
@@ -286,6 +299,46 @@ def check_for_update(current: str = APP_VERSION) -> ReleaseInfo | None:
     if latest and parse_version(latest.version) > parse_version(current):
         return latest
     return None
+
+
+def make_http() -> self_update.Http:
+    return self_update.Http(user_agent=USER_AGENT, context=ssl_context())
+
+
+def run_self_update_cli(current: str, relaunch: bool) -> None:
+    """--update: 新版があればダウンロードして入れ替える（配布ビルドのみ）。"""
+    latest = fetch_latest_release()
+    if latest is None:
+        print("更新を確認できませんでした（ネットワーク接続を確認してください）")
+        sys.exit(1)
+    if parse_version(latest.version) <= parse_version(current):
+        print(f"v{current} は最新です")
+        return
+    reason = self_update.why_not_updatable()
+    if reason:
+        print(f"自動更新できません: {reason}\nダウンロードページ: {latest.url}")
+        sys.exit(1)
+
+    inline = [False]  # 進捗を同じ行に上書き表示中なら、次のログの前で改行する
+
+    def progress(done: int, total: int | None) -> None:
+        if total:
+            print(f"\r  {done / 1048576:.1f} / {total / 1048576:.1f} MB", end="", flush=True)
+            inline[0] = True
+
+    def log(text: str) -> None:
+        if inline[0]:
+            print()
+            inline[0] = False
+        print(text)
+
+    try:
+        staged = self_update.stage_update(latest.version, latest.assets, make_http(), progress=progress, log=log)
+        self_update.apply_and_relaunch(staged, relaunch=relaunch)
+    except self_update.UpdateError as e:
+        print(f"更新に失敗しました: {e}")
+        sys.exit(1)
+    print(f"v{latest.version} に更新しました: {staged.root}")
 
 
 def parse_range(range_text: str) -> Tuple[int, int]:
@@ -557,7 +610,7 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
 
     root = tk.Tk()
     root.title(APP_NAME)
-    root.geometry("610x478")
+    root.geometry("610x512")
     root.resizable(False, False)
 
     main = ttk.Frame(root, padding=18)
@@ -706,19 +759,107 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
     generate_button.config(command=generate)
     generate_button.grid(row=8, column=0, columnspan=3, pady=(8, 0), ipadx=28, ipady=7)
 
-    # 更新通知（新しいリリースがある時だけ文言が入る。クリックでReleasesページを開く）
+    # 更新通知（新しいリリースがある時だけ表示）。
+    # 配布ビルドなら「今すぐ更新」でその場で入れ替え、ソース実行ならダウンロードページへのリンクのみ。
     link_font = tkfont.nametofont("TkDefaultFont").copy()
     link_font.configure(underline=True)
-    update_var = tk.StringVar(value="")
-    update_label = ttk.Label(main, textvariable=update_var, foreground="#1a73e8", font=link_font, cursor="hand2")
-    update_label.grid(row=9, column=0, columnspan=3, pady=(10, 0))
+    update_frame = ttk.Frame(main)
+    update_frame.grid(row=9, column=0, columnspan=3, pady=(10, 0))
+    update_msg_var = tk.StringVar(value="")
+    ttk.Label(update_frame, textvariable=update_msg_var).pack(side="left")
+    update_button = ttk.Button(update_frame, text="今すぐ更新")
+    update_link = ttk.Label(update_frame, text="ダウンロードページ", foreground="#1a73e8", font=link_font, cursor="hand2")
+    progress_frame = ttk.Frame(main)
+    progress_var = tk.StringVar(value="")
+    progress_bar = ttk.Progressbar(progress_frame, length=300, mode="determinate", maximum=1000)
+    progress_bar.pack(side="left")
+    ttk.Label(progress_frame, textvariable=progress_var).pack(side="left", padx=(8, 0))
     found: List[ReleaseInfo] = []  # ワーカースレッド → メインスレッドの受け渡し用
 
     def open_release_page(_event=None) -> None:
         if found:
             webbrowser.open(found[0].url)
 
-    update_label.bind("<Button-1>", open_release_page)
+    update_link.bind("<Button-1>", open_release_page)
+
+    def show_update_notice(info: ReleaseInfo) -> None:
+        update_msg_var.set(f"新しいバージョン v{info.version} があります（現在 v{APP_VERSION}）")
+        if self_update.is_frozen():
+            update_button.pack(side="left", padx=(10, 0))
+        update_link.pack(side="left", padx=(10, 0))
+
+    def set_updating(active: bool) -> None:
+        state = "disabled" if active else "normal"
+        update_button.config(state=state)
+        generate_button.config(state=state)
+        if active:
+            progress_frame.grid(row=10, column=0, columnspan=3, pady=(6, 0))
+        else:
+            progress_frame.grid_remove()
+
+    def start_self_update() -> None:
+        info = found[0]
+        reason = self_update.why_not_updatable()
+        if reason:
+            messagebox.showwarning("更新できません", f"{reason}\n\n「ダウンロードページ」から手動で更新してください。")
+            return
+        if not messagebox.askyesno(
+            "更新",
+            f"v{info.version} をダウンロードしてアプリを置き換えます。\n完了するとアプリは自動的に再起動します。\n\n続けますか？",
+        ):
+            return
+
+        set_updating(True)
+        state: dict = {"done": 0, "total": None, "phase": "準備中…", "staged": None, "error": None}
+
+        def on_progress(done: int, total: int | None) -> None:
+            state["done"], state["total"] = done, total
+
+        def on_phase(text: str) -> None:
+            state["phase"] = text
+
+        def worker() -> None:
+            try:
+                state["staged"] = self_update.stage_update(
+                    info.version, info.assets, make_http(), progress=on_progress, log=on_phase
+                )
+            except Exception as e:  # ユーザーに見せて終わる
+                state["error"] = e
+
+        def poll() -> None:
+            if state["error"] is not None:
+                set_updating(False)
+                if messagebox.askyesno(
+                    "更新に失敗しました",
+                    f"{state['error']}\n\nダウンロードページを開いて手動で更新しますか？",
+                ):
+                    webbrowser.open(info.url)
+                return
+            if state["staged"] is not None:
+                progress_bar["value"] = 1000
+                update_msg_var.set("入れ替えて再起動しています…")
+                root.update_idletasks()
+                try:
+                    self_update.apply_and_relaunch(state["staged"])
+                except Exception as e:
+                    set_updating(False)
+                    messagebox.showerror("更新に失敗しました", str(e))
+                    return
+                root.destroy()
+                os._exit(0)  # 旧バージョンのプロセスはここで終わる（後片付けは新版の起動時）
+            done, total = state["done"], state["total"]
+            update_msg_var.set(state["phase"])  # 「ダウンロードしています…」などの段階表示
+            if total:
+                progress_bar["value"] = int(1000 * done / total)
+                progress_var.set(f"{done / 1048576:.1f} / {total / 1048576:.1f} MB")
+            else:
+                progress_var.set(f"{done / 1048576:.1f} MB")
+            root.after(100, poll)
+
+        threading.Thread(target=worker, daemon=True).start()
+        root.after(100, poll)
+
+    update_button.config(command=start_self_update)
 
     def check_update_worker() -> None:
         info = check_for_update()
@@ -728,7 +869,7 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
     def poll_update(thread: threading.Thread) -> None:
         # tkinter はメインスレッド以外から触れないので、結果は after() で拾う
         if found:
-            update_var.set(f"新しいバージョン v{found[0].version} があります（現在 v{APP_VERSION}）— クリックしてダウンロード")
+            show_update_notice(found[0])
         elif thread.is_alive():
             root.after(300, poll_update, thread)
 
@@ -771,13 +912,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--gui", action="store_true", help="GUIを起動")
     p.add_argument("--no-update-check", action="store_true", help="GUI起動時に新バージョンの確認をしない")
     p.add_argument("--check-update", action="store_true", help="新しいバージョンがあるか確認して終了")
+    p.add_argument("--update", action="store_true", help="新しいバージョンがあればダウンロードして置き換える（配布ビルドのみ）")
+    p.add_argument("--assume-version", default=None, help=argparse.SUPPRESS)  # テスト用: 現在のバージョンを偽る
+    p.add_argument("--no-relaunch", action="store_true", help=argparse.SUPPRESS)  # テスト用: 置き換え後に再起動しない
     p.add_argument("--version", action="version", version=f"{APP_NAME} v{APP_VERSION}")
     return p
 
 
 def main() -> None:
+    self_update.cleanup_leftovers()  # 前回の更新で残った旧バージョンを片付ける
     parser = build_arg_parser()
     args = parser.parse_args()
+
+    if args.update:
+        run_self_update_cli(current=args.assume_version or APP_VERSION, relaunch=not args.no_relaunch)
+        return
 
     if args.check_update:
         latest = fetch_latest_release()
