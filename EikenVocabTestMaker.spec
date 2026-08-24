@@ -5,7 +5,10 @@ a = Analysis(
     ['vocab_test_maker.py'],
     pathex=[],
     binaries=[],
-    datas=[('data/eiken2_pass_tan_1700.csv', 'data')],
+    datas=[
+        ('data/eiken2_pass_tan_1700.csv', 'data'),
+        ('data/target_1900.csv', 'data'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

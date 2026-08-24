@@ -2,18 +2,21 @@
 # -*- coding: utf-8 -*-
 """英検2級 単語テストメーカー
 
+- 同梱の単語帳（英検2級 パス単1700 / ターゲット1900）から選択、または任意のCSV/URL
 - CSV (No, 単語, 意味) から指定範囲を抽出
 - その範囲から10問をランダム出題
 - A4横 1ページに A5縦のテストを2枚面付け
 - 日本語→英単語 / 英単語→日本語
 - 同一問題2枚 / 左右で別問題
 - 任意で解答PDFも生成
+- 起動時にGitHub Releasesを見て、新しいバージョンがあればGUIに知らせる（自動置換はしない）
 
 GUI:
     python3 vocab_test_maker.py
 
 CLI例:
     python3 vocab_test_maker.py --range 1-100 --output test.pdf
+    python3 vocab_test_maker.py --dataset target1900 --range 1801-1900 --output test.pdf
     python3 vocab_test_maker.py --range 101-200 --direction word-to-meaning \
         --two-sets different --answers --output test_101_200.pdf
 """
@@ -23,11 +26,15 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import json
 import os
 import random
 import re
+import sys
+import threading
 import urllib.error
 import urllib.request
+import webbrowser
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -40,11 +47,17 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
 
 APP_NAME = "英検2級 単語テストメーカー"
-DEFAULT_CSV_URL = "https://raw.githubusercontent.com/ddd3h/eiken-vocab-test-maker/main/data/eiken2_pass_tan_1700.csv"
+APP_VERSION = "1.1.0"  # リリース時は git タグ vX.Y.Z と揃える
+GITHUB_REPO = "ddd3h/eiken-vocab-test-maker"
+DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/data/"
+RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
+LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 QUESTIONS_PER_TEST = 10
+RANGE_STEP = 100
 HTTP_TIMEOUT = 15  # 秒
+UPDATE_CHECK_TIMEOUT = 5  # 秒。起動時のバックグラウンド確認なので短め
 MAX_CSV_BYTES = 20 * 1024 * 1024
-USER_AGENT = "EikenVocabTestMaker/1.0"
+USER_AGENT = f"EikenVocabTestMaker/{APP_VERSION}"
 
 # ReportLab built-in Japanese CID font. No font file needs to be bundled.
 JP_FONT = "HeiseiKakuGo-W5"
@@ -63,6 +76,52 @@ class VocabItem:
     no: int
     word: str
     meaning: str
+
+
+@dataclass(frozen=True)
+class Dataset:
+    """同梱の単語帳。data/ 配下のCSVをGitHubのRaw URLで参照する。"""
+
+    key: str  # CLI --dataset の値
+    label: str  # GUI表示名
+    filename: str  # data/ 内のファイル名
+    total: int  # 収録語数（出題範囲プルダウンの生成に使う）
+
+    @property
+    def url(self) -> str:
+        return DATA_BASE_URL + self.filename
+
+
+DATASETS: Tuple[Dataset, ...] = (
+    Dataset("eiken2", "英検2級 パス単（1700語）", "eiken2_pass_tan_1700.csv", 1700),
+    Dataset("target1900", "ターゲット1900（1900語）", "target_1900.csv", 1900),
+)
+DEFAULT_DATASET = DATASETS[0]
+DEFAULT_CSV_URL = DEFAULT_DATASET.url
+
+
+def dataset_by_key(key: str) -> Dataset:
+    for ds in DATASETS:
+        if ds.key == key:
+            return ds
+    raise ValueError(f"未知の単語帳です: {key}")
+
+
+def find_dataset(source: str) -> Dataset | None:
+    """CSV欄の値（URL or ファイルパス）が同梱の単語帳のどれかに一致すればそれを返す。"""
+    text = source.strip()
+    if not text:
+        return None
+    if is_url(text):
+        text = normalize_csv_url(text)
+        return next((ds for ds in DATASETS if ds.url == text), None)
+    name = Path(text).name
+    return next((ds for ds in DATASETS if ds.filename == name), None)
+
+
+def range_presets(total: int, step: int = RANGE_STEP) -> List[str]:
+    """1-100, 101-200, ... のように total 語までの出題範囲候補を作る。"""
+    return [f"{s}-{min(s + step - 1, total)}" for s in range(1, total + 1, step)]
 
 
 def is_url(source: str) -> bool:
@@ -124,11 +183,22 @@ def read_csv_text(source: str | Path) -> str:
     return csv_path.read_text(encoding="utf-8-sig")
 
 
+def _normalize_header(name: str | None) -> str:
+    """列名の前後空白・BOMを除き、『No.』『no』などは『No』に寄せる。"""
+    if name is None:
+        return ""
+    text = name.strip().lstrip("\ufeff")
+    if text.rstrip(".").lower() == "no":
+        return "No"
+    return text
+
+
 def parse_vocab(text: str) -> List[VocabItem]:
     items: List[VocabItem] = []
     reader = csv.DictReader(io.StringIO(text, newline=""))
+    reader.fieldnames = [_normalize_header(f) for f in (reader.fieldnames or [])]
     required = {"No", "単語", "意味"}
-    if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+    if not required.issubset(set(reader.fieldnames)):
         raise ValueError("CSVの列名は『No, 単語, 意味』である必要があります。")
     for row in reader:
         try:
@@ -150,6 +220,50 @@ def parse_vocab(text: str) -> List[VocabItem]:
 
 def load_vocab(source: str | Path) -> List[VocabItem]:
     return parse_vocab(read_csv_text(source))
+
+
+@dataclass(frozen=True)
+class ReleaseInfo:
+    version: str  # 例: "1.2.0"（先頭の v は除く）
+    url: str  # そのリリースのページ
+
+
+def parse_version(text: str) -> Tuple[int, ...]:
+    """'v1.2.3' / '1.2.3-beta' などを (1, 2, 3) にする。末尾の 0 は落として比較しやすくする。"""
+    m = re.match(r"\s*v?(\d+(?:\.\d+)*)", text or "", re.IGNORECASE)
+    if not m:
+        return ()
+    parts = [int(x) for x in m.group(1).split(".")]
+    while parts and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
+def fetch_latest_release(timeout: float = UPDATE_CHECK_TIMEOUT) -> ReleaseInfo | None:
+    """GitHub Releases の最新版を取得する。オフライン等で取れなければ None（例外は出さない）。"""
+    req = urllib.request.Request(
+        LATEST_RELEASE_API,
+        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read(1024 * 1024).decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    tag = str(data.get("tag_name") or "").strip()
+    if not parse_version(tag):
+        return None
+    return ReleaseInfo(version=tag.lstrip("vV"), url=str(data.get("html_url") or RELEASES_PAGE_URL))
+
+
+def check_for_update(current: str = APP_VERSION) -> ReleaseInfo | None:
+    """現在より新しいリリースがあればそれを返す。なければ（確認できなければ）None。"""
+    latest = fetch_latest_release()
+    if latest and parse_version(latest.version) > parse_version(current):
+        return latest
+    return None
 
 
 def parse_range(range_text: str) -> Tuple[int, int]:
@@ -415,28 +529,43 @@ def default_output_name(range_text: str) -> str:
     return f"vocab_test_{safe_range}_{stamp}.pdf"
 
 
-def launch_gui() -> None:
+def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> None:
     import tkinter as tk
-    from tkinter import filedialog, messagebox, simpledialog, ttk
+    from tkinter import filedialog, font as tkfont, messagebox, simpledialog, ttk
 
     root = tk.Tk()
     root.title(APP_NAME)
-    root.geometry("610x410")
+    root.geometry("610x478")
     root.resizable(False, False)
 
     main = ttk.Frame(root, padding=18)
     main.pack(fill="both", expand=True)
 
-    ttk.Label(main, text=APP_NAME, font=("Helvetica", 17, "bold")).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 14))
+    ttk.Label(main, text=APP_NAME, font=("Helvetica", 17, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
+    ttk.Label(main, text=f"v{APP_VERSION}", foreground="gray").grid(row=0, column=2, sticky="e", pady=(0, 14))
 
-    csv_var = tk.StringVar(value=DEFAULT_CSV_URL)
+    CUSTOM_LABEL = "カスタム（ファイル / URL を指定）"
+
+    dataset_var = tk.StringVar(value=DEFAULT_DATASET.label)
+    csv_var = tk.StringVar(value=initial_csv or DEFAULT_CSV_URL)
     range_var = tk.StringVar(value="1-100")
     direction_var = tk.StringVar(value="meaning-to-word")
     two_sets_var = tk.StringVar(value="same")
     answers_var = tk.BooleanVar(value=True)
 
-    ttk.Label(main, text="CSV（ファイル or URL）").grid(row=1, column=0, sticky="w", pady=6)
-    ttk.Entry(main, textvariable=csv_var, width=54).grid(row=1, column=1, sticky="ew", pady=6)
+    ttk.Label(main, text="単語帳").grid(row=1, column=0, sticky="w", pady=6)
+    dataset_box = ttk.Combobox(
+        main,
+        textvariable=dataset_var,
+        values=[ds.label for ds in DATASETS] + [CUSTOM_LABEL],
+        width=34,
+        state="readonly",
+    )
+    dataset_box.grid(row=1, column=1, sticky="w", pady=6)
+
+    ttk.Label(main, text="CSV（ファイル or URL）").grid(row=2, column=0, sticky="w", pady=6)
+    csv_entry = ttk.Entry(main, textvariable=csv_var, width=54)
+    csv_entry.grid(row=2, column=1, sticky="ew", pady=6)
 
     def choose_csv() -> None:
         p = filedialog.askopenfilename(title="CSVを選択", filetypes=[("CSV", "*.csv"), ("すべて", "*")])
@@ -456,31 +585,64 @@ def launch_gui() -> None:
             csv_var.set(url.strip())
 
     button_frame = ttk.Frame(main)
-    button_frame.grid(row=1, column=2, padx=(8, 0), pady=6)
+    button_frame.grid(row=2, column=2, padx=(8, 0), pady=6)
     ttk.Button(button_frame, text="選択", command=choose_csv).pack(side="left")
     ttk.Button(button_frame, text="URL", command=choose_url).pack(side="left", padx=(6, 0))
 
-    ttk.Label(main, text="出題範囲").grid(row=2, column=0, sticky="w", pady=6)
-    ranges = [f"{s}-{s+99}" for s in range(1, 1701, 100)]
-    range_box = ttk.Combobox(main, textvariable=range_var, values=ranges, width=18, state="normal")
-    range_box.grid(row=2, column=1, sticky="w", pady=6)
+    ttk.Label(main, text="出題範囲").grid(row=3, column=0, sticky="w", pady=6)
+    range_box = ttk.Combobox(
+        main, textvariable=range_var, values=range_presets(DEFAULT_DATASET.total), width=18, state="normal"
+    )
+    range_box.grid(row=3, column=1, sticky="w", pady=6)
 
-    ttk.Label(main, text="出題形式").grid(row=3, column=0, sticky="nw", pady=6)
+    def apply_ranges(total: int) -> None:
+        values = range_presets(total)
+        range_box["values"] = values
+        try:
+            if parse_range(range_var.get())[1] <= total:
+                return  # 現在の範囲がこの単語帳に収まるなら維持
+        except ValueError:
+            pass
+        range_var.set(values[0])
+
+    def on_csv_changed(*_args) -> None:
+        # CSV欄が同梱の単語帳を指していれば「単語帳」表示と出題範囲候補を合わせる。
+        ds = find_dataset(csv_var.get())
+        dataset_var.set(ds.label if ds else CUSTOM_LABEL)
+        if ds:
+            apply_ranges(ds.total)
+
+    def on_dataset_selected(_event=None) -> None:
+        label = dataset_var.get()
+        ds = next((d for d in DATASETS if d.label == label), None)
+        if ds:
+            csv_var.set(ds.url)  # trace 経由で出題範囲も更新される
+        else:
+            csv_entry.focus_set()  # カスタム: CSV欄に自前のファイル/URLを入れてもらう
+
+    dataset_box.bind("<<ComboboxSelected>>", on_dataset_selected)
+    csv_var.trace_add("write", on_csv_changed)
+    on_csv_changed()
+
+    ttk.Label(main, text="出題形式").grid(row=4, column=0, sticky="nw", pady=6)
     direction_frame = ttk.Frame(main)
-    direction_frame.grid(row=3, column=1, columnspan=2, sticky="w", pady=6)
+    direction_frame.grid(row=4, column=1, columnspan=2, sticky="w", pady=6)
     ttk.Radiobutton(direction_frame, text="日本語 → 英単語", variable=direction_var, value="meaning-to-word").pack(anchor="w")
     ttk.Radiobutton(direction_frame, text="英単語 → 日本語", variable=direction_var, value="word-to-meaning").pack(anchor="w")
 
-    ttk.Label(main, text="A4の左右").grid(row=4, column=0, sticky="nw", pady=6)
+    ttk.Label(main, text="A4の左右").grid(row=5, column=0, sticky="nw", pady=6)
     sets_frame = ttk.Frame(main)
-    sets_frame.grid(row=4, column=1, columnspan=2, sticky="w", pady=6)
+    sets_frame.grid(row=5, column=1, columnspan=2, sticky="w", pady=6)
     ttk.Radiobutton(sets_frame, text="同じ10問を2枚（切って配布向け）", variable=two_sets_var, value="same").pack(anchor="w")
     ttk.Radiobutton(sets_frame, text="別々の10問をA/B 2セット", variable=two_sets_var, value="different").pack(anchor="w")
 
-    ttk.Checkbutton(main, text="解答PDFも同時に作る", variable=answers_var).grid(row=5, column=1, sticky="w", pady=(8, 12))
+    ttk.Checkbutton(main, text="解答PDFも同時に作る", variable=answers_var).grid(row=6, column=1, sticky="w", pady=(8, 12))
 
-    note = "PDF: A4横 1ページ / 左右それぞれA5縦 / 中央に切り取り線\nCSV欄にはURLも指定できます（GitHubのRaw URLなど）"
-    ttk.Label(main, text=note, justify="left").grid(row=6, column=0, columnspan=3, sticky="w", pady=(0, 12))
+    note = (
+        "PDF: A4横 1ページ / 左右それぞれA5縦 / 中央に切り取り線\n"
+        "単語帳を選ぶとCSV欄と出題範囲の候補が切り替わります（自前のCSVはファイル / URLで指定）"
+    )
+    ttk.Label(main, text=note, justify="left").grid(row=7, column=0, columnspan=3, sticky="w", pady=(0, 12))
 
     generate_button = ttk.Button(main, text="PDFを作成")
 
@@ -520,7 +682,38 @@ def launch_gui() -> None:
             generate_button.config(state="normal", text="PDFを作成")
 
     generate_button.config(command=generate)
-    generate_button.grid(row=7, column=0, columnspan=3, pady=(8, 0), ipadx=28, ipady=7)
+    generate_button.grid(row=8, column=0, columnspan=3, pady=(8, 0), ipadx=28, ipady=7)
+
+    # 更新通知（新しいリリースがある時だけ文言が入る。クリックでReleasesページを開く）
+    link_font = tkfont.nametofont("TkDefaultFont").copy()
+    link_font.configure(underline=True)
+    update_var = tk.StringVar(value="")
+    update_label = ttk.Label(main, textvariable=update_var, foreground="#1a73e8", font=link_font, cursor="hand2")
+    update_label.grid(row=9, column=0, columnspan=3, pady=(10, 0))
+    found: List[ReleaseInfo] = []  # ワーカースレッド → メインスレッドの受け渡し用
+
+    def open_release_page(_event=None) -> None:
+        if found:
+            webbrowser.open(found[0].url)
+
+    update_label.bind("<Button-1>", open_release_page)
+
+    def check_update_worker() -> None:
+        info = check_for_update()
+        if info:
+            found.append(info)
+
+    def poll_update(thread: threading.Thread) -> None:
+        # tkinter はメインスレッド以外から触れないので、結果は after() で拾う
+        if found:
+            update_var.set(f"新しいバージョン v{found[0].version} があります（現在 v{APP_VERSION}）— クリックしてダウンロード")
+        elif thread.is_alive():
+            root.after(300, poll_update, thread)
+
+    if check_update:
+        worker = threading.Thread(target=check_update_worker, daemon=True)
+        worker.start()
+        root.after(300, poll_update, worker)
 
     main.columnconfigure(1, weight=1)
     root.mainloop()
@@ -528,7 +721,14 @@ def launch_gui() -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=APP_NAME)
-    p.add_argument("--csv", default=DEFAULT_CSV_URL, help="CSVファイルのパス、またはURL（既定値はGitHubのRaw URL）")
+    source = p.add_mutually_exclusive_group()
+    source.add_argument(
+        "--dataset",
+        choices=[ds.key for ds in DATASETS],
+        default=None,
+        help="同梱の単語帳を選ぶ: " + " / ".join(f"{ds.key}={ds.label}" for ds in DATASETS) + f"（既定: {DEFAULT_DATASET.key}）",
+    )
+    source.add_argument("--csv", default=None, help="自前のCSVファイルのパス、またはURL（--dataset の代わりに使う）")
     p.add_argument("--range", dest="range_text", help="例: 1-100, 101-200")
     p.add_argument(
         "--direction",
@@ -547,6 +747,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=None, help="乱数seed（同じ問題を再現したい場合）")
     p.add_argument("--output", help="出力PDF")
     p.add_argument("--gui", action="store_true", help="GUIを起動")
+    p.add_argument("--no-update-check", action="store_true", help="GUI起動時に新バージョンの確認をしない")
+    p.add_argument("--check-update", action="store_true", help="新しいバージョンがあるか確認して終了")
+    p.add_argument("--version", action="version", version=f"{APP_NAME} v{APP_VERSION}")
     return p
 
 
@@ -554,9 +757,25 @@ def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
 
+    if args.check_update:
+        latest = fetch_latest_release()
+        if latest is None:
+            print("更新を確認できませんでした（ネットワーク接続を確認してください）")
+            sys.exit(1)
+        if parse_version(latest.version) > parse_version(APP_VERSION):
+            print(f"新しいバージョン v{latest.version} があります（現在 v{APP_VERSION}）: {latest.url}")
+        else:
+            print(f"v{APP_VERSION} は最新です")
+        return
+
+    if args.csv:
+        csv_source: str | Path = args.csv if is_url(args.csv) else Path(args.csv).expanduser()
+    else:
+        csv_source = dataset_by_key(args.dataset or DEFAULT_DATASET.key).url
+
     # No CLI range -> GUI by default.
     if args.gui or not args.range_text:
-        launch_gui()
+        launch_gui(initial_csv=str(csv_source), check_update=not args.no_update_check)
         return
 
     make_answers_flag = True
@@ -565,7 +784,6 @@ def main() -> None:
     elif args.answers:
         make_answers_flag = True
 
-    csv_source: str | Path = args.csv if is_url(args.csv) else Path(args.csv).expanduser()
     output = Path(args.output or default_output_name(args.range_text))
     out, ans = make_test(
         csv_source=csv_source,
