@@ -35,6 +35,7 @@ import ssl
 import sys
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 from dataclasses import dataclass, field
@@ -52,7 +53,7 @@ import self_update
 from self_update import Asset
 
 APP_NAME = "英検2級 単語テストメーカー"
-APP_VERSION = "1.2.0"  # リリース時は git タグ vX.Y.Z と揃える
+APP_VERSION = "1.2.1"  # リリース時は git タグ vX.Y.Z と揃える
 GITHUB_REPO = "ddd3h/eiken-vocab-test-maker"
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/data/"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -122,6 +123,20 @@ def find_dataset(source: str) -> Dataset | None:
         return next((ds for ds in DATASETS if ds.url == text), None)
     name = Path(text).name
     return next((ds for ds in DATASETS if ds.filename == name), None)
+
+
+def source_display_name(source: str | Path) -> str:
+    """PDFに載せる単語帳名。同梱の単語帳ならその表示名、自前のCSVならファイル名（拡張子なし）。"""
+    text = str(source).strip()
+    ds = find_dataset(text)
+    if ds:
+        return ds.label
+    if is_url(text):
+        stem = Path(urllib.parse.urlsplit(normalize_csv_url(text)).path).stem
+        stem = urllib.parse.unquote(stem)
+    else:
+        stem = Path(text).stem
+    return stem or APP_NAME
 
 
 def range_presets(total: int, step: int = RANGE_STEP) -> List[str]:
@@ -449,6 +464,7 @@ def draw_test_panel(
     direction: str,
     label: str,
     answers: bool = False,
+    footer: str = APP_NAME,
 ) -> None:
     margin_x = 11 * mm
     top = h - 10 * mm
@@ -540,7 +556,7 @@ def draw_test_panel(
             c.line(left + 8 * mm, sep_y, right, sep_y)
 
     c.setFont(JP_FONT, 6.5)
-    c.drawRightString(right, y0 + 6.5 * mm, f"{APP_NAME}")
+    c.drawRightString(right, y0 + 6.5 * mm, footer)
     c.restoreState()
 
 
@@ -553,6 +569,7 @@ def generate_pdf(
     direction: str,
     answers: bool = False,
     labels: Tuple[str, str] = ("A", "B"),
+    source_name: str = APP_NAME,
 ) -> None:
     page_size = landscape(A4)
     page_w, page_h = page_size
@@ -562,9 +579,10 @@ def generate_pdf(
     c = canvas.Canvas(str(output_path), pagesize=page_size)
     c.setTitle("英単語テスト" if not answers else "英単語テスト 解答")
     c.setAuthor(APP_NAME)
+    c.setSubject(source_name)
 
-    draw_test_panel(c, 0, 0, panel_w, page_h, left_items, start, end, direction, labels[0], answers)
-    draw_test_panel(c, panel_w, 0, panel_w, page_h, right_items, start, end, direction, labels[1], answers)
+    draw_test_panel(c, 0, 0, panel_w, page_h, left_items, start, end, direction, labels[0], answers, footer=source_name)
+    draw_test_panel(c, panel_w, 0, panel_w, page_h, right_items, start, end, direction, labels[1], answers, footer=source_name)
     draw_cut_mark(c, page_w, page_h)
     c.showPage()
     c.save()
@@ -578,22 +596,25 @@ def make_test(
     two_sets: str = "same",
     make_answers: bool = True,
     seed: int | None = None,
+    source_name: str | None = None,
 ) -> Tuple[Path, Path | None]:
     items = load_vocab(csv_source)
     start, end = parse_range(range_text)
     pool = filter_range(items, start, end)
+    if source_name is None:
+        source_name = source_display_name(csv_source)  # PDF右下に載せる単語帳名
 
     rng = random.Random(seed)
     left, right = choose_tests(pool, two_sets, rng)
     labels = ("A", "A") if two_sets == "same" else ("A", "B")
 
     output_path = output_path.with_suffix(".pdf")
-    generate_pdf(output_path, left, right, start, end, direction, answers=False, labels=labels)
+    generate_pdf(output_path, left, right, start, end, direction, answers=False, labels=labels, source_name=source_name)
 
     answer_path: Path | None = None
     if make_answers:
         answer_path = output_path.with_name(output_path.stem + "_answers.pdf")
-        generate_pdf(answer_path, left, right, start, end, direction, answers=True, labels=labels)
+        generate_pdf(answer_path, left, right, start, end, direction, answers=True, labels=labels, source_name=source_name)
 
     return output_path, answer_path
 
