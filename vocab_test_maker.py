@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""英検2級 単語テストメーカー
+"""単語テストメーカー
 
-- 同梱の単語帳（英検2級 パス単1700 / ターゲット1900）から選択、または任意のCSV/URL
+- 同梱の単語帳（英検2級 パス単1700 / ターゲット1900 / 英検準1級 パス単1900）から選択、または任意のCSV/URL
 - CSV (No, 単語, 意味) から指定範囲を抽出
 - その範囲から10問をランダム出題
 - A4横 1ページに A5縦のテストを2枚面付け
 - 日本語→英単語 / 英単語→日本語
-- 同一問題2枚 / 左右で別問題
+- 左=問題・右=解答を1枚に（既定） / 同一問題2枚 / 左右で別問題
 - 任意で解答PDFも生成
 - 起動時にGitHub Releasesを見て、新しいバージョンがあればGUIに知らせる
 - 配布ビルドなら「今すぐ更新」でダウンロード → 検証 → 入れ替え → 再起動まで行う（self_update.py）
@@ -52,8 +52,8 @@ from reportlab.pdfgen import canvas
 import self_update
 from self_update import Asset
 
-APP_NAME = "英検2級 単語テストメーカー"
-APP_VERSION = "1.2.2"  # リリース時は git タグ vX.Y.Z と揃える
+APP_NAME = "単語テストメーカー"
+APP_VERSION = "1.3.0"  # リリース時は git タグ vX.Y.Z と揃える
 GITHUB_REPO = "ddd3h/eiken-vocab-test-maker"
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/data/"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -101,6 +101,7 @@ class Dataset:
 DATASETS: Tuple[Dataset, ...] = (
     Dataset("eiken2", "英検2級 パス単（1700語）", "eiken2_pass_tan_1700.csv", 1700),
     Dataset("target1900", "ターゲット1900（1900語）", "target_1900.csv", 1900),
+    Dataset("eikenpre1", "英検準1級 パス単（1900語）", "eiken_pre1_pass_tan_1900.csv", 1900),
 )
 DEFAULT_DATASET = DATASETS[0]
 DEFAULT_CSV_URL = DEFAULT_DATASET.url
@@ -379,7 +380,8 @@ def choose_tests(
     two_sets: str,
     rng: random.Random,
 ) -> Tuple[List[VocabItem], List[VocabItem]]:
-    if two_sets == "same":
+    if two_sets in ("same", "qa"):
+        # "qa" も左右は同じ10問（左=問題, 右=解答として使う）。
         test = rng.sample(list(pool), QUESTIONS_PER_TEST)
         return test, list(test)
 
@@ -482,7 +484,8 @@ def draw_test_panel(
     c.drawString(left, y0 + top, title)
 
     c.setFont(JP_FONT, 8.5)
-    c.drawRightString(right, y0 + top + 1.5, f"{label}  出題範囲 No.{start}-{end}")
+    prefix = f"{label}  " if label else ""
+    c.drawRightString(right, y0 + top + 1.5, f"{prefix}出題範囲 No.{start}-{end}")
 
     info_y = y0 + top - 9 * mm
     c.setFont(JP_FONT, 8.5)
@@ -567,7 +570,8 @@ def generate_pdf(
     start: int,
     end: int,
     direction: str,
-    answers: bool = False,
+    left_answers: bool = False,
+    right_answers: bool = False,
     labels: Tuple[str, str] = ("A", "B"),
     source_name: str = APP_NAME,
 ) -> None:
@@ -577,12 +581,18 @@ def generate_pdf(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     c = canvas.Canvas(str(output_path), pagesize=page_size)
-    c.setTitle("英単語テスト" if not answers else "英単語テスト 解答")
+    if left_answers and right_answers:
+        title = "英単語テスト 解答"
+    elif not left_answers and not right_answers:
+        title = "英単語テスト"
+    else:
+        title = "英単語テスト（問題+解答）"
+    c.setTitle(title)
     c.setAuthor(APP_NAME)
     c.setSubject(source_name)
 
-    draw_test_panel(c, 0, 0, panel_w, page_h, left_items, start, end, direction, labels[0], answers, footer=source_name)
-    draw_test_panel(c, panel_w, 0, panel_w, page_h, right_items, start, end, direction, labels[1], answers, footer=source_name)
+    draw_test_panel(c, 0, 0, panel_w, page_h, left_items, start, end, direction, labels[0], left_answers, footer=source_name)
+    draw_test_panel(c, panel_w, 0, panel_w, page_h, right_items, start, end, direction, labels[1], right_answers, footer=source_name)
     draw_cut_mark(c, page_w, page_h)
     c.showPage()
     c.save()
@@ -593,7 +603,7 @@ def make_test(
     range_text: str,
     output_path: Path,
     direction: str = "word-to-meaning",
-    two_sets: str = "different",
+    two_sets: str = "qa",
     make_answers: bool = True,
     seed: int | None = None,
     source_name: str | None = None,
@@ -606,15 +616,27 @@ def make_test(
 
     rng = random.Random(seed)
     left, right = choose_tests(pool, two_sets, rng)
-    labels = ("A", "A") if two_sets == "same" else ("A", "B")
+    if two_sets == "qa":
+        # 同じ10問を左=問題（空欄）、右=解答として1枚に収める。
+        labels = ("", "")
+        left_answers, right_answers = False, True
+    else:
+        labels = ("A", "A") if two_sets == "same" else ("A", "B")
+        left_answers = right_answers = False
 
     output_path = output_path.with_suffix(".pdf")
-    generate_pdf(output_path, left, right, start, end, direction, answers=False, labels=labels, source_name=source_name)
+    generate_pdf(
+        output_path, left, right, start, end, direction,
+        left_answers=left_answers, right_answers=right_answers, labels=labels, source_name=source_name,
+    )
 
     answer_path: Path | None = None
     if make_answers:
         answer_path = output_path.with_name(output_path.stem + "_answers.pdf")
-        generate_pdf(answer_path, left, right, start, end, direction, answers=True, labels=labels, source_name=source_name)
+        generate_pdf(
+            answer_path, left, right, start, end, direction,
+            left_answers=True, right_answers=True, labels=labels, source_name=source_name,
+        )
 
     return output_path, answer_path
 
@@ -631,7 +653,7 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
 
     root = tk.Tk()
     root.title(APP_NAME)
-    root.geometry("610x512")
+    root.geometry("610x534")
     root.resizable(False, False)
 
     main = ttk.Frame(root, padding=18)
@@ -646,7 +668,7 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
     csv_var = tk.StringVar(value=initial_csv or DEFAULT_CSV_URL)
     range_var = tk.StringVar(value="1-100")
     direction_var = tk.StringVar(value="word-to-meaning")
-    two_sets_var = tk.StringVar(value="different")
+    two_sets_var = tk.StringVar(value="qa")
     answers_var = tk.BooleanVar(value=True)
 
     ttk.Label(main, text="単語帳").grid(row=1, column=0, sticky="w", pady=6)
@@ -729,8 +751,9 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
     ttk.Label(main, text="A4の左右").grid(row=5, column=0, sticky="nw", pady=6)
     sets_frame = ttk.Frame(main)
     sets_frame.grid(row=5, column=1, columnspan=2, sticky="w", pady=6)
-    ttk.Radiobutton(sets_frame, text="同じ10問を2枚（切って配布向け）", variable=two_sets_var, value="same").pack(anchor="w")
+    ttk.Radiobutton(sets_frame, text="左に問題・右に解答（1枚で完結）", variable=two_sets_var, value="qa").pack(anchor="w")
     ttk.Radiobutton(sets_frame, text="別々の10問をA/B 2セット", variable=two_sets_var, value="different").pack(anchor="w")
+    ttk.Radiobutton(sets_frame, text="同じ10問を2枚（切って配布向け）", variable=two_sets_var, value="same").pack(anchor="w")
 
     ttk.Checkbutton(main, text="解答PDFも同時に作る", variable=answers_var).grid(row=6, column=1, sticky="w", pady=(8, 12))
 
@@ -922,9 +945,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--two-sets",
-        choices=["same", "different"],
-        default="different",
-        help="same=同じ問題を左右2枚, different=左右で別問題（既定）",
+        choices=["qa", "same", "different"],
+        default="qa",
+        help="qa=左に問題・右に解答を1枚に（既定）, same=同じ問題を左右2枚, different=左右で別問題",
     )
     p.add_argument("--answers", action="store_true", help="解答PDFも作る")
     p.add_argument("--no-answers", action="store_true", help="解答PDFを作らない")

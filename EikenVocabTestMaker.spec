@@ -8,6 +8,7 @@ a = Analysis(
     datas=[
         ('data/eiken2_pass_tan_1700.csv', 'data'),
         ('data/target_1900.csv', 'data'),
+        ('data/eiken_pre1_pass_tan_1900.csv', 'data'),
     ],
     hiddenimports=[],
     hookspath=[],
