@@ -53,7 +53,7 @@ import self_update
 from self_update import Asset
 
 APP_NAME = "単語テストメーカー"
-APP_VERSION = "1.3.0"  # リリース時は git タグ vX.Y.Z と揃える
+APP_VERSION = "1.4.0"  # リリース時は git タグ vX.Y.Z と揃える
 GITHUB_REPO = "ddd3h/eiken-vocab-test-maker"
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/data/"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -64,6 +64,13 @@ HTTP_TIMEOUT = 15  # 秒
 UPDATE_CHECK_TIMEOUT = 5  # 秒。起動時のバックグラウンド確認なので短め
 MAX_CSV_BYTES = 20 * 1024 * 1024
 USER_AGENT = f"EikenVocabTestMaker/{APP_VERSION}"
+ICON_PNG_PATH = "assets/icon/EikenVocabTestMaker-256.png"
+
+
+def resource_path(relative: str) -> Path:
+    """同梱リソースの絶対パス。PyInstallerで固めた場合は sys._MEIPASS 配下を見る。"""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / relative
 
 # ReportLab built-in Japanese CID font. No font file needs to be bundled.
 JP_FONT = "HeiseiKakuGo-W5"
@@ -655,6 +662,12 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
     root.title(APP_NAME)
     root.geometry("610x534")
     root.resizable(False, False)
+    try:
+        icon_img = tk.PhotoImage(file=str(resource_path(ICON_PNG_PATH)))
+        root.iconphoto(True, icon_img)
+        root._icon_img_ref = icon_img  # GC避け
+    except Exception:
+        pass  # アイコンが無くても起動は継続する
 
     main = ttk.Frame(root, padding=18)
     main.pack(fill="both", expand=True)
@@ -755,7 +768,20 @@ def launch_gui(initial_csv: str | None = None, check_update: bool = True) -> Non
     ttk.Radiobutton(sets_frame, text="別々の10問をA/B 2セット", variable=two_sets_var, value="different").pack(anchor="w")
     ttk.Radiobutton(sets_frame, text="同じ10問を2枚（切って配布向け）", variable=two_sets_var, value="same").pack(anchor="w")
 
-    ttk.Checkbutton(main, text="解答PDFも同時に作る", variable=answers_var).grid(row=6, column=1, sticky="w", pady=(8, 12))
+    answers_check = ttk.Checkbutton(main, text="解答PDFも同時に作る", variable=answers_var)
+    answers_check.grid(row=6, column=1, sticky="w", pady=(8, 12))
+
+    def sync_answers_availability(*_args) -> None:
+        # 「左に問題・右に解答」モードは1枚に解答も入るので、別ファイルの解答PDFは無効化する。
+        if two_sets_var.get() == "qa":
+            answers_var.set(False)
+            answers_check.config(state="disabled")
+        else:
+            answers_check.config(state="normal")
+            answers_var.set(True)
+
+    two_sets_var.trace_add("write", sync_answers_availability)
+    sync_answers_availability()
 
     note = (
         "PDF: A4横 1ページ / 左右それぞれA5縦 / 中央に切り取り線\n"
@@ -993,7 +1019,9 @@ def main() -> None:
         launch_gui(initial_csv=str(csv_source), check_update=not args.no_update_check)
         return
 
-    make_answers_flag = True
+    # qa（左に問題・右に解答）は1枚に解答も入るので、既定では別ファイルの解答PDFを作らない。
+    # --answers / --no-answers を明示した場合はそちらを優先する。
+    make_answers_flag = args.two_sets != "qa"
     if args.no_answers:
         make_answers_flag = False
     elif args.answers:

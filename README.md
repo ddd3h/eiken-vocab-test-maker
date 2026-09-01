@@ -117,7 +117,7 @@ python3 vocab_test_maker.py --range 1-100 --seed 12345 --output test.pdf
 | `--range` | 出題範囲。例: `1-100` |
 | `--direction` | `meaning-to-word`（日本語→英単語）/ `word-to-meaning`（英単語→日本語, 既定） |
 | `--two-sets` | `qa`（左に問題・右に解答を1枚に, 既定）/ `same`（左右とも同じ10問）/ `different`（左右で別の10問） |
-| `--answers` / `--no-answers` | 解答PDFを作る / 作らない |
+| `--answers` / `--no-answers` | 解答PDFを作る / 作らない（既定は `qa` 以外なら作る、`qa` は作らない） |
 | `--seed` | 乱数seed（同じ問題を再現したい場合） |
 | `--output` | 出力PDFのパス |
 | `--gui` | GUIを起動 |
@@ -136,7 +136,7 @@ python3 vocab_test_maker.py --range 1-100 --seed 12345 --output test.pdf
 - 日本語 → 英単語 / 英単語 → 日本語
 - A4横1ページにA5縦を左右2枚
 - 「左に問題・右に解答（1枚で完結, 既定）」「A/B別々の10問」「同じ10問を2枚」から選択
-- 解答PDFも同時生成可能
+- 解答PDFも同時生成可能（「左に問題・右に解答」は1枚に解答も入るためこの項目は無効化されます）
 - PDFの右下に単語帳名（自前CSVならファイル名）を印字
 - 自前のCSVはファイル選択またはURL指定
 - 新しいバージョンがあれば画面下にお知らせ。「今すぐ更新」でその場で入れ替え（ビルド済みアプリ）

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="40" y="40" width="944" height="944" rx="220" fill="#305BE8"/>
+  <rect x="245" y="180" width="534" height="664" rx="64" fill="#FFFFFF"/>
+  <text x="512" y="505" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-size="310" font-weight="700"
+        fill="#305BE8">A</text>
+  <path d="M360 650 L455 744 L670 520" fill="none" stroke="#305BE8"
+        stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

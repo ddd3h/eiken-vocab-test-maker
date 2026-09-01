@@ -1,5 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+
+ICON_DIR = "assets/icon"
+# Windows exe は .ico、macOS .app は .icns。Linuxはアイコン埋め込み非対応のため付けない。
+EXE_ICON = f"{ICON_DIR}/EikenVocabTestMaker.ico" if sys.platform == "win32" else None
+BUNDLE_ICON = f"{ICON_DIR}/EikenVocabTestMaker.icns" if sys.platform == "darwin" else None
 
 a = Analysis(
     ['vocab_test_maker.py'],
@@ -9,6 +15,7 @@ a = Analysis(
         ('data/eiken2_pass_tan_1700.csv', 'data'),
         ('data/target_1900.csv', 'data'),
         ('data/eiken_pre1_pass_tan_1900.csv', 'data'),
+        ('assets/icon/EikenVocabTestMaker-256.png', 'assets/icon'),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -36,6 +43,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=EXE_ICON,
 )
 coll = COLLECT(
     exe,
@@ -49,6 +57,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='EikenVocabTestMaker.app',
-    icon=None,
+    icon=BUNDLE_ICON,
     bundle_identifier=None,
 )
