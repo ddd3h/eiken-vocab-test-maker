@@ -71,6 +71,7 @@ Finderで `run_mac.command` を control + クリック →「開く」
 |---|---|---|---|
 | 英検2級 パス単（既定） | `eiken2` | 1700 | [`data/eiken2_pass_tan_1700.csv`](data/eiken2_pass_tan_1700.csv) |
 | ターゲット1900 | `target1900` | 1900 | [`data/target_1900.csv`](data/target_1900.csv) |
+| ターゲット1200 | `target1200` | 1700 | [`data/target_1200.csv`](data/target_1200.csv) |
 | 英検準1級 パス単 | `eikenpre1` | 1900 | [`data/eiken_pre1_pass_tan_1900.csv`](data/eiken_pre1_pass_tan_1900.csv) |
 
 - GUI: 「単語帳」プルダウンで選ぶと、CSV欄のURLと出題範囲の候補（1-100, 101-200, …）が自動で切り替わります。

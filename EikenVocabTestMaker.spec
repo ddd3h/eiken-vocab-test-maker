@@ -14,6 +14,7 @@ a = Analysis(
     datas=[
         ('data/eiken2_pass_tan_1700.csv', 'data'),
         ('data/target_1900.csv', 'data'),
+        ('data/target_1200.csv', 'data'),
         ('data/eiken_pre1_pass_tan_1900.csv', 'data'),
         ('assets/icon/EikenVocabTestMaker-256.png', 'assets/icon'),
     ],

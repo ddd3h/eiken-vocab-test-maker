@@ -53,7 +53,7 @@ import self_update
 from self_update import Asset
 
 APP_NAME = "単語テストメーカー"
-APP_VERSION = "1.4.0"  # リリース時は git タグ vX.Y.Z と揃える
+APP_VERSION = "1.5.0"  # リリース時は git タグ vX.Y.Z と揃える
 GITHUB_REPO = "ddd3h/eiken-vocab-test-maker"
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/data/"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -108,6 +108,7 @@ class Dataset:
 DATASETS: Tuple[Dataset, ...] = (
     Dataset("eiken2", "英検2級 パス単（1700語）", "eiken2_pass_tan_1700.csv", 1700),
     Dataset("target1900", "ターゲット1900（1900語）", "target_1900.csv", 1900),
+    Dataset("target1200", "ターゲット1200（1700語）", "target_1200.csv", 1700),
     Dataset("eikenpre1", "英検準1級 パス単（1900語）", "eiken_pre1_pass_tan_1900.csv", 1900),
 )
 DEFAULT_DATASET = DATASETS[0]
