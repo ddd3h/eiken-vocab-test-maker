@@ -16,6 +16,32 @@ PDFで書き出すツールです（GUI / CLI）。既定では左に問題・�
 サンプルPDFそのもの: [`samples/sample_test_1-100.pdf`](samples/sample_test_1-100.pdf) /
 [`samples/sample_test_1-100_answers.pdf`](samples/sample_test_1-100_answers.pdf)
 
+## Web版（インストール不要）
+
+**https://ddd3h.github.io/eiken-vocab-test-maker/** をブラウザで開くだけで、同じ単語テストPDFを作れます
+（PC・スマホどちらでも可）。
+
+- 単語帳（英検2級 / ターゲット1900 / ターゲット1200 / 英検準1級）を選び、出題範囲・形式・左右の面付けを指定して「PDFを作成」
+- 自前のCSVはファイル選択またはURL（GitHubのRaw URLなど）で指定できます
+- PDFの生成はすべてブラウザ内で行われ、CSVやPDFが外部に送信されることはありません
+- 「シード」を指定すると同じ問題を再現できます（※デスクトップ版のシードとは問題の選ばれ方が異なります）
+
+仕組みは `web/`（HTML / JavaScript。PDF生成は [pdf-lib](https://pdf-lib.js.org/)、日本語フォントは
+Noto Sans JP のサブセットを同梱）で、`data/` のCSVと一緒に GitHub Pages で配信しています。
+ローカルで試すには:
+
+```bash
+scripts/build_site.sh && python3 -m http.server -d _site 8000
+# → http://localhost:8000/
+```
+
+公開手順（初回のみ）:
+
+1. `scripts/pages.yml` を `.github/workflows/pages.yml` にコピーして `main` に push する
+   （`main` への push で `web/` `data/` などが変わるたびに、GitHub Actions が自動デプロイします）
+2. リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にする
+3. Actions タブで「Deploy web app to GitHub Pages」が成功したら、上のURLで開けます（手動実行は Run workflow）
+
 ## ダウンロード（ビルド済みアプリ）
 
 [Releases](../../releases/latest) から、Windows / macOS / Linux 用のビルド済みアプリを
@@ -113,7 +139,7 @@ python3 vocab_test_maker.py --range 1-100 --seed 12345 --output test.pdf
 
 | オプション | 説明 |
 |---|---|
-| `--dataset` | 同梱の単語帳: `eiken2`（英検2級 パス単, 既定）/ `target1900`（ターゲット1900）/ `eikenpre1`（英検準1級 パス単） |
+| `--dataset` | 同梱の単語帳: `eiken2`（英検2級 パス単, 既定）/ `target1900`（ターゲット1900）/ `target1200`（ターゲット1200）/ `eikenpre1`（英検準1級 パス単） |
 | `--csv` | 自前のCSVファイルのパス、またはURL（`--dataset` の代わりに使う） |
 | `--range` | 出題範囲。例: `1-100` |
 | `--direction` | `meaning-to-word`（日本語→英単語）/ `word-to-meaning`（英単語→日本語, 既定） |
@@ -179,3 +205,6 @@ macOS上でビルドする必要があります。
 ## ライセンス
 
 [MIT License](LICENSE)
+
+Web版に同梱しているライブラリ・フォントのライセンス: `web/vendor/LICENSES.txt`（pdf-lib / fontkit: MIT）、
+`web/fonts/OFL.txt`（Noto Sans JP: SIL Open Font License 1.1）。

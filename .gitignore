@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 vocab_test_*.pdf
 .serena/
+_site/

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>単語テストメーカー</title>
+  <meta name="description" content="英検・ターゲットの単語帳から、A4横1枚の単語テスト（A5縦×2）をブラウザだけでPDFにします。インストール不要。">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" type="image/png" href="assets/icon/EikenVocabTestMaker-256.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page">
+    <header class="head">
+      <img src="assets/icon/EikenVocabTestMaker-256.png" alt="" width="56" height="56">
+      <div>
+        <h1>単語テストメーカー</h1>
+        <p class="lead">出題範囲を選んで「PDFを作成」。A4横1枚に、A5縦の単語テスト（10問）が左右2枚入ります。</p>
+      </div>
+    </header>
+
+    <form id="form" class="card" autocomplete="off">
+      <div class="field">
+        <label for="dataset">単語帳</label>
+        <select id="dataset"></select>
+      </div>
+
+      <div id="custom-box" class="field custom" hidden>
+        <div class="custom-row">
+          <label class="btn small" for="csv-file">CSVファイルを選ぶ</label>
+          <input id="csv-file" type="file" accept=".csv,text/csv" class="visually-hidden">
+        </div>
+        <div class="custom-row">
+          <input id="csv-url" type="url" inputmode="url" placeholder="または CSV の URL（GitHub の Raw URL など）" aria-label="CSVのURL">
+          <button id="csv-url-load" type="button" class="btn small">読み込む</button>
+        </div>
+        <p id="custom-status" class="status" role="status">列名は <code>No,単語,意味</code>（UTF-8）にしてください。</p>
+      </div>
+
+      <div class="field">
+        <label for="range-select">出題範囲</label>
+        <div class="range">
+          <select id="range-select"></select>
+          <input id="range-free" type="text" inputmode="numeric" value="1-100" placeholder="例: 1-100" aria-label="出題範囲（例: 1-100）" hidden>
+        </div>
+      </div>
+
+      <fieldset class="field">
+        <legend>出題形式</legend>
+        <label class="choice"><input type="radio" name="direction" value="meaning-to-word"> 日本語 → 英単語</label>
+        <label class="choice"><input type="radio" name="direction" value="word-to-meaning" checked> 英単語 → 日本語</label>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>A4の左右</legend>
+        <label class="choice"><input type="radio" name="two-sets" value="qa" checked> 左に問題・右に解答（1枚で完結）</label>
+        <label class="choice"><input type="radio" name="two-sets" value="different"> 別々の10問をA/B 2セット</label>
+        <label class="choice"><input type="radio" name="two-sets" value="same"> 同じ10問を2枚（切って配布向け）</label>
+      </fieldset>
+
+      <div class="field">
+        <label class="choice"><input id="answers" type="checkbox"> 解答PDFも同時に作る</label>
+      </div>
+
+      <details class="field more">
+        <summary>詳細設定</summary>
+        <label for="seed">シード（同じ問題を再現したいとき）</label>
+        <input id="seed" type="text" inputmode="numeric" placeholder="空欄ならランダム">
+      </details>
+
+      <p id="error" class="error" role="alert" hidden></p>
+      <button id="generate" type="submit" class="btn primary big">PDFを作成</button>
+    </form>
+
+    <div id="results" class="results" hidden aria-live="polite"></div>
+
+    <noscript><p class="error">このページの利用には JavaScript が必要です。</p></noscript>
+
+    <footer class="foot">
+      <p>入力したCSVや作成したPDFは、お使いのブラウザの中だけで処理され、外部には送信されません。</p>
+      <p>
+        <a href="https://github.com/ddd3h/eiken-vocab-test-maker">GitHub</a>
+        ・ <a href="https://github.com/ddd3h/eiken-vocab-test-maker/releases/latest">デスクトップ版（Windows / macOS / Linux）</a>
+        ・ <a href="https://github.com/ddd3h/eiken-vocab-test-maker/blob/main/LICENSE">MIT License</a>
+      </p>
+    </footer>
+  </main>
+
+  <script src="vendor/pdf-lib.min.js"></script>
+  <script src="vendor/fontkit.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
